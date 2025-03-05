@@ -2,168 +2,170 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from modeva import DataSet
-from modeva.models import MoLinearRegression, MoLogisticRegression, MoDecisionTreeRegressor, MoDecisionTreeClassifier
-from modeva import TestSuite
-from sklearn.metrics import mean_squared_error, accuracy_score, classification_report, confusion_matrix
 import seaborn as sns
 
-st.set_page_config(page_title="QuCreate Model Residual Explorer", layout="wide")
+st.set_page_config(page_title="QuCreate Model Residual Explorer Lab", layout="wide")
 st.sidebar.image("https://www.quantuniversity.com/assets/img/logo5.jpg")
 st.sidebar.divider()
 st.sidebar.title("Model Residual Explorer")
-st.sidebar.markdown("Explore model residuals interactively.")
 st.sidebar.divider()
 
-st.title("Model Residual Explorer")
-st.markdown("This application helps you understand model performance by visualizing and exploring model residuals. "
-            "Select a task type and model to begin.")
+st.title("Model Residual Explorer - QuLab")
+st.markdown("## Overview")
+st.write(
+    "This application is designed to help you explore model residuals for both classification and regression tasks. "
+    "By visualizing residuals, you can gain insights into model performance, identify weaknesses, and assess model robustness. "
+    "This lab uses a synthetic dataset to demonstrate these concepts in an interactive and educational manner."
+)
 st.divider()
 
-# --- Data Generation ---
-st.header("Synthetic Dataset Generation")
-st.write("We are using a synthetic dataset for demonstration purposes. You can explore model residuals using this generated data.")
+# Task selection
+task_type = st.radio("Select Task Type:", ["Regression", "Classification"])
 
-np.random.seed(42)
-n_samples = 1000
-features = {
-    'numerical_feature_1': np.random.rand(n_samples),
-    'numerical_feature_2': np.random.randn(n_samples),
-    'categorical_feature': np.random.choice(['A', 'B', 'C'], n_samples),
-    'target_regression': 2 * np.random.rand(n_samples) + 0.5 * np.random.randn(n_samples),
-    'target_classification': np.random.choice([0, 1], n_samples, p=[0.6, 0.4])
-}
-synthetic_df = pd.DataFrame(features)
+st.markdown("## 1. Synthetic Dataset Generation")
+st.write("We are generating a synthetic dataset for demonstration purposes. This dataset includes numerical and categorical features to simulate real-world scenarios.")
 
-st.dataframe(synthetic_df.head())
-st.caption("First few rows of the synthetic dataset.")
+@st.cache_data
+def generate_synthetic_data(task):
+    """Generates a synthetic dataset for regression or classification."""
+    np.random.seed(42)
+    n_samples = 200
+    if task == "Regression":
+        X = pd.DataFrame({
+            'feature_1': np.random.rand(n_samples) * 10,
+            'feature_2': np.random.randn(n_samples),
+            'feature_cat': np.random.choice(['A', 'B', 'C'], n_samples)
+        })
+        X = pd.get_dummies(X, columns=['feature_cat'], drop_first=True)
+        y = 2 * X['feature_1'] + 0.5 * X['feature_2'] + (X['feature_cat_B'] * 3) + (X['feature_cat_C'] * -2) + np.random.randn(n_samples) * 2
+        y_pred = 2 * X['feature_1'] + 0.5 * X['feature_2'] + (X['feature_cat_B'] * 3) + (X['feature_cat_C'] * -2)
 
-# --- User Input in Sidebar ---
-task_type = st.sidebar.selectbox("Select Task Type", ["Regression", "Classification"])
+    elif task == "Classification":
+        X = pd.DataFrame({
+            'feature_1': np.random.rand(n_samples) * 5 - 2.5,
+            'feature_2': np.random.randn(n_samples),
+            'feature_cat': np.random.choice(['X', 'Y'], n_samples)
+        })
+        X = pd.get_dummies(X, columns=['feature_cat'], drop_first=True)
+        probability = 1 / (1 + np.exp(-(1.5 * X['feature_1'] + 0.8 * X['feature_2'] - 1.0*X['feature_cat_Y'])))
+        y = np.random.binomial(1, probability)
+        y_pred_proba = probability
+        y_pred = np.round(y_pred_proba).astype(int)
+        y_pred = y_pred.flatten()
+        y_pred_proba = y_pred_proba.flatten()
+        y_pred = pd.Series(y_pred)
+        y_pred_proba = pd.Series(y_pred_proba)
+        y = pd.Series(y)
+
+
+    residuals = y - y_pred
+    if task == "Regression":
+        return X, y, y_pred, residuals
+    elif task == "Classification":
+        return X, y, y_pred, residuals, y_pred_proba
 
 if task_type == "Regression":
-    target_column = "target_regression"
-    model_name = st.sidebar.selectbox("Select Regression Model", ["Linear Regression", "Decision Tree Regressor"])
-else:
-    target_column = "target_classification"
-    model_name = st.sidebar.selectbox("Select Classification Model", ["Logistic Regression", "Decision Tree Classifier"])
+    X, y, y_pred, residuals = generate_synthetic_data(task_type)
+    st.dataframe(X.head())
+    st.write("Synthetic Regression Target Variable (y) distribution:")
+    st.bar_chart(y.value_counts())
 
-feature_to_color_code = st.sidebar.selectbox("Color code residuals by Feature (for scatter plots)",
-                                            synthetic_df.columns.tolist())
-
-st.sidebar.divider()
-st.sidebar.markdown("Adjust Visualization Parameters:")
-chart_type = st.sidebar.selectbox("Visualization Type for Residuals", ["Scatter Plot", "Histogram"])
+elif task_type == "Classification":
+    X, y, y_pred, residuals, y_pred_proba = generate_synthetic_data(task_type)
+    st.dataframe(X.head())
+    st.write("Synthetic Classification Target Variable (y) distribution:")
+    st.bar_chart(y.value_counts())
 
 st.divider()
 
-# --- Model Training and Prediction ---
-st.header(f"Model Training and Residual Analysis for {task_type}")
+st.markdown("## 2. Model Simulation & Residual Calculation")
+st.write("For educational purposes, we simulated a simple model. In a real application, this would be replaced by your pre-trained ML model.")
+st.write("Residuals are calculated as the difference between the actual values (y) and the predicted values (y_pred).")
 
-ds = DataSet(name="SyntheticData")
-ds.load_dataframe(synthetic_df)
-ds.set_target(target_column)
-ds.preprocess()
-ds.set_random_split()
-
-st.subheader("Model Training in Progress...")
-model = None
 if task_type == "Regression":
-    if model_name == "Linear Regression":
-        model = MoLinearRegression(name="demo_model")
-    elif model_name == "Decision Tree Regressor":
-        model = MoDecisionTreeRegressor(name="demo_tree_regressor", max_depth=3) # Limited depth for explainability
-else: # Classification
-    if model_name == "Logistic Regression":
-        model = MoLogisticRegression(name="demo_model")
-    elif model_name == "Decision Tree Classifier":
-        model = MoDecisionTreeClassifier(name="demo_tree_classifier", max_depth=3) # Limited depth for explainability
+    st.markdown("### Regression: Predicted vs. Actual Values")
+    fig_pred_actual, ax_pred_actual = plt.subplots(figsize=(8, 6))
+    sns.scatterplot(x=y_pred, y=y, ax=ax_pred_actual)
+    ax_pred_actual.set_xlabel("Predicted Values")
+    ax_pred_actual.set_ylabel("Actual Values")
+    ax_pred_actual.set_title("Predicted vs. Actual Values (Regression)")
+    st.pyplot(fig_pred_actual)
+    st.write("This scatter plot visualizes how well the predicted values align with the actual values. Ideally, points should cluster closely around a diagonal line, indicating good model fit.")
 
-if model:
-    model.fit(ds.train_x, ds.train_y.ravel()) # ravel for sklearn compatibility
-    st.success(f"Model ({model_name}) training completed!")
+    st.markdown("### Histogram of Residuals")
+    fig_hist_res, ax_hist_res = plt.subplots(figsize=(8, 6))
+    sns.histplot(residuals, kde=True, ax=ax_hist_res)
+    ax_hist_res.set_xlabel("Residuals")
+    ax_hist_res.set_ylabel("Frequency")
+    ax_hist_res.set_title("Histogram of Residuals (Regression)")
+    st.pyplot(fig_hist_res)
+    st.write("This histogram shows the distribution of residuals. For a good model, residuals should be approximately normally distributed around zero, indicating unbiased predictions.")
 
-    st.subheader("Model Predictions and Residual Calculation")
-    predictions = model.predict(ds.test_x)
-    actual_values = ds.test_y.ravel()
+    feature_choice = st.selectbox("Select feature for Residual vs. Feature plot:", X.columns.tolist())
+    st.markdown(f"### Residuals vs. {feature_choice}")
+    fig_res_feature, ax_res_feature = plt.subplots(figsize=(8, 6))
+    sns.scatterplot(x=X[feature_choice], y=residuals, ax=ax_res_feature)
+    ax_res_feature.set_xlabel(feature_choice)
+    ax_res_feature.set_ylabel("Residuals")
+    ax_res_feature.set_title(f"Residuals vs. {feature_choice} (Regression)")
+    st.pyplot(fig_res_feature)
+    st.write(f"This scatter plot helps identify if there are patterns in residuals related to the selected feature '{feature_choice}'. Randomly scattered residuals indicate no feature-dependent bias.")
 
-    if task_type == "Regression":
-        residuals = actual_values - predictions
-        st.write("Residuals are calculated as: Actual Value - Predicted Value")
-        st.latex(r'\text{Residual} = \text{Actual Value} - \text{Predicted Value}')
-    else: # Classification
-        residuals = np.array([1 if p != a else 0 for p, a in zip(predictions, actual_values)]) # 1 for misclassification, 0 for correct
-        st.write("Residuals are binary for classification: 1 for misclassification, 0 for correct classification.")
-        st.markdown("Residual = 1 if Prediction != Actual Value, else 0")
-
-
-    st.subheader("Residual Visualizations")
-
-    if chart_type == "Scatter Plot":
-        st.write(f"Visualizing residuals in a scatter plot, color-coded by '{feature_to_color_code}'.")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        scatter = ax.scatter(predictions, residuals, c=synthetic_df.loc[ds.test_idx, feature_to_color_code], cmap='viridis', alpha=0.7)
-        ax.axhline(y=0, color='r', linestyle='--')
-        ax.set_xlabel("Predicted Values")
-        ax.set_ylabel("Residuals")
-        ax.set_title(f"Residual Scatter Plot Color-coded by {feature_to_color_code}")
-        plt.colorbar(scatter, ax=ax, label=feature_to_color_code)
-        st.pyplot(fig)
-        st.caption("This scatter plot shows residuals against predicted values. Ideally, residuals should be randomly scattered around zero. "
-                     "Color coding by feature helps identify if residual patterns are influenced by feature values.")
-
-    elif chart_type == "Histogram":
-        st.write("Displaying a histogram of the residuals to check their distribution.")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.hist(residuals, bins=30, edgecolor='black', alpha=0.7)
-        ax.set_xlabel("Residuals")
-        ax.set_ylabel("Frequency")
-        ax.set_title("Histogram of Residuals")
-        st.pyplot(fig)
-        st.caption("A histogram of residuals helps visualize their distribution. For a well-performing model, residuals should ideally be normally distributed around zero.")
-
-    st.subheader("Model Validation Metrics")
-    st.write("Evaluating model performance using standard metrics.")
-    if task_type == "Regression":
-        mse = mean_squared_error(actual_values, predictions)
-        st.metric("Mean Squared Error (MSE)", f"{mse:.4f}")
-        st.caption("MSE measures the average squared difference between the estimated values and the actual value. Lower MSE values indicate better fit.")
-
-    else: # Classification
-        accuracy = accuracy_score(actual_values, np.round(predictions)) # Assuming binary classification and predictions are probabilities
-        st.metric("Accuracy", f"{accuracy:.4%}")
-        st.caption("Accuracy is the proportion of correct predictions out of the total predictions. Higher accuracy values indicate better performance.")
-        report = classification_report(actual_values, np.round(predictions), output_dict=True)
-        report_df = pd.DataFrame(report).transpose()
-        st.dataframe(report_df)
-        st.caption("Classification Report provides precision, recall, f1-score and support for each class, and overall metrics.")
-
-        st.subheader("Confusion Matrix")
-        st.write("Confusion Matrix to visualize classification performance per class.")
-        cm = confusion_matrix(actual_values, np.round(predictions))
-        fig, ax = plt.subplots(figsize=(8, 6))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax)
-        ax.set_xlabel('Predicted labels')
-        ax.set_ylabel('True labels')
-        ax.set_title('Confusion Matrix')
-        st.pyplot(fig)
-        st.caption("Confusion Matrix shows the counts of True Positives, True Negatives, False Positives, and False Negatives, helping understand model's class-wise performance.")
+    st.markdown("### Model Validation Metrics")
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+    mse = mean_squared_error(y, y_pred)
+    mae = mean_absolute_error(y, y_pred)
+    r2 = r2_score(y, y_pred)
+    metrics_df = pd.DataFrame({
+        'Metric': ['Mean Squared Error (MSE)', 'Mean Absolute Error (MAE)', 'R-squared (R2)'],
+        'Value': [mse, mae, r2]
+    })
+    st.dataframe(metrics_df)
+    st.write("These metrics provide a quantitative assessment of the model's performance. Lower MSE and MAE and R-squared closer to 1 indicate a better model for regression tasks.")
 
 
-    st.subheader("Model Explainability (Basic - Feature Importance)")
-    st.write("Displaying basic feature importance from the trained model (if available).")
-    if hasattr(model, 'interpret_fi'):
-        fi_result = model.interpret_fi(ds.train_x, ds.train_y.ravel())
-        fig_fi = fi_result.plot()
-        st.pyplot(fig_fi)
-        st.caption("Feature Importance plot indicates which features had the most influence on the model's predictions. "
-                     "While this is model-centric, it can indirectly help understand which features might be related to residuals.")
-    else:
-        st.warning("Feature importance plot is not available for this model type in modeva directly. ")
-        st.info("Note: Feature importance is model-specific and may not be available for all model types directly through modeva's interpret_fi method.")
+elif task_type == "Classification":
+    st.markdown("### Classification: Predicted Probabilities Histogram")
+    fig_proba_hist, ax_proba_hist = plt.subplots(figsize=(8, 6))
+    sns.histplot(y_pred_proba, kde=False, ax=ax_proba_hist)
+    ax_proba_hist.set_xlabel("Predicted Probabilities for Class 1")
+    ax_proba_hist.set_ylabel("Frequency")
+    ax_proba_hist.set_title("Histogram of Predicted Probabilities (Classification)")
+    st.pyplot(fig_proba_hist)
+    st.write("This histogram displays the distribution of predicted probabilities for the positive class. It helps to understand the model's confidence in its predictions.")
 
-else:
-    st.error("Model training failed. Please check model selection and dataset.")
+
+    st.markdown("### Histogram of Residuals (Classification)")
+    fig_hist_res_class, ax_hist_res_class = plt.subplots(figsize=(8, 6))
+    sns.histplot(residuals, kde=True, ax=ax_hist_res_class)
+    ax_hist_res_class.set_xlabel("Residuals (y - y_pred)")
+    ax_hist_res_class.set_ylabel("Frequency")
+    ax_hist_res_class.set_title("Histogram of Residuals (Classification)")
+    st.pyplot(fig_hist_res_class)
+    st.write("For classification, residuals are the difference between actual and predicted class labels. Ideally, residuals should be centered around zero, indicating balanced predictions.")
+
+    feature_choice_class = st.selectbox("Select feature for Residual vs. Feature plot:", X.columns.tolist())
+    st.markdown(f"### Residuals vs. {feature_choice_class}")
+    fig_res_feature_class, ax_res_feature_class = plt.subplots(figsize=(8, 6))
+    sns.scatterplot(x=X[feature_choice_class], y=residuals, ax=ax_res_feature_class)
+    ax_res_feature_class.set_xlabel(feature_choice_class)
+    ax_res_feature_class.set_ylabel("Residuals")
+    ax_res_feature_class.set_title(f"Residuals vs. {feature_choice_class} (Classification)")
+    st.pyplot(fig_res_feature_class)
+    st.write(f"Analyzing residuals against features like '{feature_choice_class}' helps reveal feature-specific biases in classification performance.")
+
+    st.markdown("### Model Validation Metrics")
+    from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+    accuracy = accuracy_score(y, y_pred)
+    f1 = f1_score(y, y_pred)
+    auc_roc = roc_auc_score(y, y_pred_proba)
+
+    metrics_df_class = pd.DataFrame({
+        'Metric': ['Accuracy', 'F1-Score', 'AUC-ROC'],
+        'Value': [accuracy, f1, auc_roc]
+    })
+    st.dataframe(metrics_df_class)
+    st.write("These metrics evaluate the classification model. Higher Accuracy, F1-Score, and AUC-ROC values indicate better classification performance.")
 
 
 st.divider()
